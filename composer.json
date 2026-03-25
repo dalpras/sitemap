@@ -1,0 +1,14 @@
+{
+  "name": "dalpras/sitemap",
+  "description": "Libreria PHP per generazione di sitemap XML con supporto a hreflang, immagini, split e sitemap index.",
+  "type": "library",
+  "autoload": {
+    "psr-4": {
+      "DalPraS\\Sitemap\\": "src/"
+    }
+  },
+  "require": {
+    "php": ">=8.1",
+    "ext-dom": "*"
+  }
+}
