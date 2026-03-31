@@ -13,4 +13,17 @@ final class SitemapConfig
         public readonly ?int $maxUncompressedBytesPerFile = 52428800,
         public readonly bool $strictValidation = true,
     ) {}
+
+    public function withBaseUrl(string $baseUrl): self
+    {
+        return new self(
+            baseUrl: rtrim($baseUrl, '/'),
+            formatOutput: $this->formatOutput,
+            allowAbsoluteUrls: $this->allowAbsoluteUrls,
+            gzip: $this->gzip,
+            maxEntriesPerFile: $this->maxEntriesPerFile,
+            maxUncompressedBytesPerFile: $this->maxUncompressedBytesPerFile,
+            strictValidation: $this->strictValidation,
+        );
+    }    
 }

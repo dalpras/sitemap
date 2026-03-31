@@ -9,11 +9,16 @@ use DalPraS\Sitemap\Exception\WriteException;
 final class FilesystemWriter implements OutputWriterInterface
 {
     public function __construct(
-        private string $folder,
+        private readonly string $folder,
     ) {
         if (!is_dir($this->folder) && !mkdir($this->folder, 0755, true) && !is_dir($this->folder)) {
             throw new RuntimeException(sprintf('Unable to create output folder: %s', $this->folder));
         }
+    }
+
+    public function withFolder(string $folder): self
+    {
+        return new self($folder);
     }
 
     public function write(string $filename, string $content): void
