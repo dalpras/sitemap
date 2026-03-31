@@ -1,95 +1,265 @@
-# DalPraS Sitemap
+# dalpras/sitemap
 
-Libreria PHP per generare sitemap XML con supporto a:
+A small PHP library for generating XML sitemaps and sitemap indexes, with support for validation, splitting large sitemaps, and writing output to the filesystem.
 
-- URL entries
-- hreflang alternates
-- immagini
-- split automatico per numero di entry
-- sitemap index
-- gzip opzionale
-- facade legacy compatibile con `SitemapBuilder`
+## Features
 
-## Namespace
+- Generate XML sitemaps from `Sitemap` and `SitemapEntry` objects
+- Automatically split large sitemaps into multiple files
+- Generate sitemap index files when a sitemap is split
+- Optional gzip output
+- Validation support before writing files
+- Filesystem writer implementation out of the box
+- Runtime factories for:
+  - `baseUrl`
+  - output directory
 
-```php
-use DalPraS\Sitemap\Sitemap;
+## Installation
+
+Install with Composer:
+
+```bash
+composer require dalpras/sitemap
 ```
 
-## Installazione
+## Core concepts
 
-Aggiungi il package al tuo progetto oppure copia i file in una libreria interna e configura l'autoload PSR-4:
+### `Sitemap`
 
-```json
-{
-  "autoload": {
-    "psr-4": {
-      "DalPraS\\Sitemap\\": "src/"
-    }
-  }
-}
-```
+A sitemap container identified by a name.
 
-## Uso base
+### `SitemapEntry`
+
+Represents a single URL entry in a sitemap.
+
+### `SitemapGenerator`
+
+Validates entries, splits large sitemaps when necessary, renders XML, and writes output.
+
+### `SitemapConfig`
+
+Controls generator behavior, including:
+
+- `baseUrl`
+- `formatOutput`
+- `allowAbsoluteUrls`
+- `gzip`
+- `maxEntriesPerFile`
+- `maxUncompressedBytesPerFile`
+- `strictValidation`
+
+### `FilesystemWriter`
+
+Writes generated sitemap files to a target folder.
+
+## Basic example
 
 ```php
-use DateTimeImmutable;
-use DalPraS\Sitemap\AlternateLink;
-use DalPraS\Sitemap\Config\SitemapConfig;
-use DalPraS\Sitemap\ImageReference;
-use DalPraS\Sitemap\Renderer\XmlSitemapIndexRenderer;
-use DalPraS\Sitemap\Renderer\XmlSitemapRenderer;
-use DalPraS\Sitemap\Service\SitemapGenerator;
+<?php declare(strict_types=1);
+
 use DalPraS\Sitemap\Sitemap;
 use DalPraS\Sitemap\SitemapEntry;
-use DalPraS\Sitemap\Support\BaseUrlResolver;
-use DalPraS\Sitemap\Support\FilesystemWriter;
-use DalPraS\Sitemap\Support\SitemapSplitter;
-use DalPraS\Sitemap\Support\SitemapValidator;
 
-$config = new SitemapConfig(
-    baseUrl: 'https://www.example.com',
-    gzip: false,
-    maxEntriesPerFile: 50000,
-    strictValidation: true,
-);
+$sitemap = new Sitemap('pages');
+$sitemap->addEntry(new SitemapEntry('/en/about'));
+$sitemap->addEntry(new SitemapEntry('/en/contact'));
 
-$resolver = new BaseUrlResolver($config);
-
-$generator = new SitemapGenerator(
-    config: $config,
-    validator: new SitemapValidator($config->strictValidation),
-    splitter: new SitemapSplitter($config),
-    sitemapRenderer: new XmlSitemapRenderer($config, $resolver),
-    indexRenderer: new XmlSitemapIndexRenderer($config, $resolver),
-    writer: new FilesystemWriter(__DIR__ . '/sitemaps'),
-);
-
-$sitemap = new Sitemap('catalog');
-
-$entry = new SitemapEntry(
-    loc: '/it/prodotti/interruttore-123',
-    lastmod: new DateTimeImmutable('2026-03-17'),
-    changefreq: 'weekly',
-    priority: 0.8,
-);
-
-$entry
-    ->addAlternate(new AlternateLink('it-IT', '/it/prodotti/interruttore-123'))
-    ->addAlternate(new AlternateLink('en-GB', '/en/products/switch-123'))
-    ->addImage(new ImageReference('/media/catalog/interruttore-123.jpg', 'Interruttore Vimar', 'Interruttore 123'));
-
-$sitemap->addEntry($entry);
 $generator->generate($sitemap);
 ```
 
-## Facade legacy
+## Runtime factories
+
+The library supports creating generators at runtime with a different base URL and output folder.
+
+This is useful when the same application needs to generate multiple sitemap sets in a single execution, such as one sitemap per domain, storefront, or tenant.
+
+Instead of mutating shared services, the library uses immutable helpers and a factory.
+
+### Why factories?
+
+In most container-based applications, `SitemapConfig` and `FilesystemWriter` are shared services.
+
+Changing them directly during command execution would make them stateful and unsafe. Factories avoid that by creating a fresh `SitemapGenerator` with runtime-specific values.
+
+## Immutable runtime helpers
+
+### `SitemapConfig::withBaseUrl()`
+
+Returns a new config instance with a different `baseUrl`, preserving the rest of the configuration.
 
 ```php
-use DalPraS\Sitemap\Legacy\SitemapBuilder;
-
-$builder = new SitemapBuilder(__DIR__ . '/sitemaps', 'https://www.example.com');
-$builder
-    ->addEntry('catalog', '/it/prodotti/demo', '2026-03-17 10:00:00')
-    ->save();
+$config = $config->withBaseUrl('https://www.example.com');
 ```
+
+### `FilesystemWriter::withFolder()`
+
+Returns a new writer instance targeting a different folder.
+
+```php
+$writer = $writer->withFolder('/var/www/project/public/sitemaps');
+```
+
+## `SitemapGeneratorFactory`
+
+Use `SitemapGeneratorFactory` to create a fresh generator for each runtime context.
+
+```php
+$generator = $factory->create(
+    baseUrl: 'https://www.example.com',
+    folder: '/var/www/project/public/sitemaps'
+);
+```
+
+This allows you to reuse the default library services while changing:
+
+- the runtime base URL
+- the output directory
+
+## Example: generate a sitemap with runtime configuration
+
+```php
+<?php declare(strict_types=1);
+
+use DalPraS\Sitemap\Service\SitemapGeneratorFactory;
+use DalPraS\Sitemap\Sitemap;
+use DalPraS\Sitemap\SitemapEntry;
+
+final class BuildSitemap
+{
+    public function __construct(
+        private SitemapGeneratorFactory $sitemapGeneratorFactory,
+    ) {}
+
+    public function run(): void
+    {
+        $sitemap = new Sitemap('pages');
+        $sitemap->addEntry(new SitemapEntry('/en/about'));
+        $sitemap->addEntry(new SitemapEntry('/en/contact'));
+
+        $generator = $this->sitemapGeneratorFactory->create(
+            baseUrl: 'https://www.example.com',
+            folder: __DIR__ . '/public/sitemaps'
+        );
+
+        $generator->generate($sitemap);
+    }
+}
+```
+
+## Example: generate multiple sitemap sets in one command
+
+Factories are especially useful when generating multiple sitemap groups in a single process.
+
+```php
+<?php declare(strict_types=1);
+
+use DalPraS\Sitemap\Service\SitemapGeneratorFactory;
+use DalPraS\Sitemap\Sitemap;
+use DalPraS\Sitemap\SitemapEntry;
+
+final class BuildAllSitemaps
+{
+    public function __construct(
+        private SitemapGeneratorFactory $sitemapGeneratorFactory,
+    ) {}
+
+    public function run(): void
+    {
+        $sites = [
+            'site-a' => 'https://www.site-a.example',
+            'site-b' => 'https://www.site-b.example',
+        ];
+
+        foreach ($sites as $key => $baseUrl) {
+            $sitemap = new Sitemap('catalog-' . $key);
+            $sitemap->addEntry(new SitemapEntry('/en/products/example'));
+
+            $generator = $this->sitemapGeneratorFactory->create(
+                baseUrl: $baseUrl,
+                folder: __DIR__ . '/public/sitemaps/' . $key
+            );
+
+            $generator->generate($sitemap);
+        }
+    }
+}
+```
+
+This keeps services immutable while allowing each sitemap run to target a different domain and folder.
+
+## Factory API
+
+### `SitemapGeneratorFactory::create()`
+
+```php
+public function create(?string $baseUrl = null, ?string $folder = null): SitemapGenerator
+```
+
+Parameters:
+
+- `baseUrl`: optional runtime override for `SitemapConfig::baseUrl`
+- `folder`: optional runtime override for `FilesystemWriter`
+
+## Symfony service registration example
+
+```yaml
+services:
+  DalPraS\Sitemap\Service\SitemapGeneratorFactory:
+    arguments:
+      $config: '@DalPraS\Sitemap\Config\SitemapConfig'
+      $validator: '@DalPraS\Sitemap\Support\SitemapValidator'
+      $splitter: '@DalPraS\Sitemap\Support\SitemapSplitter'
+      $sitemapRenderer: '@DalPraS\Sitemap\Renderer\XmlSitemapRenderer'
+      $indexRenderer: '@DalPraS\Sitemap\Renderer\XmlSitemapIndexRenderer'
+      $writer: '@DalPraS\Sitemap\Contract\OutputWriterInterface'
+```
+
+## Notes
+
+### Base URL behavior
+
+The factory allows you to override `baseUrl` at runtime by creating a new `SitemapConfig` instance.
+
+```php
+$generator = $factory->create(baseUrl: 'https://www.example.com');
+```
+
+Whether this changes the final XML depends on which components use `SitemapConfig::baseUrl`.
+
+If your application already builds fully qualified URLs before creating `SitemapEntry` objects, overriding `baseUrl` may not change the generated XML.
+
+### Output folder override
+
+The runtime `folder` override is supported when the configured writer is `FilesystemWriter`.
+
+```php
+$generator = $factory->create(folder: '/tmp/sitemaps');
+```
+
+If another writer implementation is used, runtime folder override may not be available.
+
+## Recommended usage
+
+Use the factory whenever:
+
+- you generate sitemaps for multiple domains in one process
+- you need different output folders per run
+- you want to keep services immutable and container-safe
+
+Avoid mutating shared config or writer services during command execution.
+
+## What changed
+
+### Added
+
+- `SitemapConfig::withBaseUrl()` for immutable runtime base URL overrides
+- `FilesystemWriter::withFolder()` for immutable runtime folder overrides
+- `SitemapGeneratorFactory` for creating generators with per-run configuration
+
+### Typical use case
+
+These additions make it easier to generate sitemaps for multiple domains, tenants, storefronts, or environments within the same command without mutating shared services.
+
+## License
+
+MIT
