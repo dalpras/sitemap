@@ -2,7 +2,6 @@
 
 namespace DalPraS\Sitemap\Support;
 
-use DalPraS\Sitemap\Config\SitemapConfig;
 use DalPraS\Sitemap\Contract\UrlResolverInterface;
 
 final class BaseUrlResolver implements UrlResolverInterface
@@ -10,14 +9,15 @@ final class BaseUrlResolver implements UrlResolverInterface
     private string $baseUrl;
 
     public function __construct(
-        private SitemapConfig $config,
+        string $baseUrl,
+        private readonly bool $allowAbsoluteUrls = true,
     ) {
-        $this->baseUrl = rtrim($config->baseUrl, '/');
+        $this->baseUrl = rtrim($baseUrl, '/');
     }
 
     public function resolve(string $path): string
     {
-        if ($this->config->allowAbsoluteUrls && preg_match('~^https?://~i', $path) === 1) {
+        if ($this->allowAbsoluteUrls && preg_match('~^https?://~i', $path) === 1) {
             return $path;
         }
 

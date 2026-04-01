@@ -8,8 +8,15 @@ final class SitemapGeneratorFactory
         private readonly SitemapRuntimeContextFactory $contextFactory,
     ) {}
 
-    public function create(?string $baseUrl = null, ?string $folder = null): SitemapGenerator
-    {
-        return $this->contextFactory->create($baseUrl, $folder)->generator;
+    public function create(
+        ?string $entryBaseUrl = null,
+        ?string $sitemapBaseUrl = null,
+        ?string $folder = null,
+    ): SitemapGenerator {
+        return $this->contextFactory->create(
+            entryBaseUrl: $entryBaseUrl,
+            sitemapBaseUrl: $sitemapBaseUrl,
+            folder: $folder,
+        )->generator;
     }
 }

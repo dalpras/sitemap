@@ -27,17 +27,23 @@ final class SitemapBuilder
 
     public function __construct(
         private string $folder,
-        private string $baseUrl = 'http://localhost',
+        private string $entryBaseUrl = 'http://localhost',
+        private string $sitemapBaseUrl = 'http://localhost/sitemaps',
     ) {
-        $config = new SitemapConfig(baseUrl: $baseUrl);
-        $resolver = new BaseUrlResolver($config);
+        $config = new SitemapConfig(
+            entryBaseUrl: $entryBaseUrl,
+            sitemapBaseUrl: $sitemapBaseUrl,
+        );
+
+        $entryResolver = new BaseUrlResolver($config->entryBaseUrl, $config->allowAbsoluteUrls);
+        $sitemapResolver = new BaseUrlResolver($config->sitemapBaseUrl, $config->allowAbsoluteUrls);
 
         $this->generator = new SitemapGenerator(
             config: $config,
             validator: new SitemapValidator($config->strictValidation),
             splitter: new SitemapSplitter($config),
-            sitemapRenderer: new XmlSitemapRenderer($config, $resolver),
-            indexRenderer: new XmlSitemapIndexRenderer($config, $resolver),
+            sitemapRenderer: new XmlSitemapRenderer($config, $entryResolver),
+            indexRenderer: new XmlSitemapIndexRenderer($config, $sitemapResolver),
             writer: new FilesystemWriter($folder),
         );
     }

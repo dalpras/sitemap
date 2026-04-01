@@ -11,7 +11,8 @@ A small PHP library for generating XML sitemaps and sitemap indexes, with suppor
 - Validation support before writing files
 - Filesystem writer implementation out of the box
 - Runtime factories for:
-  - `baseUrl`
+  - `entryBaseUrl`
+  - `sitemapBaseUrl`
   - output directory
 
 ## Installation
@@ -40,7 +41,8 @@ Validates entries, splits large sitemaps when necessary, renders XML, and writes
 
 Controls generator behavior, including:
 
-- `baseUrl`
+- `entryBaseUrl`
+- `sitemapBaseUrl`
 - `formatOutput`
 - `allowAbsoluteUrls`
 - `gzip`
@@ -69,11 +71,11 @@ $generator->generate($sitemap);
 
 ## Runtime factories
 
-The library supports creating generators at runtime with a different base URL and output folder.
+The library supports creating generators at runtime with different entry and sitemap base URLs, plus a different output folder.
 
 This is useful when the same application needs to generate multiple sitemap sets in a single execution, such as one sitemap per domain, storefront, or tenant.
 
-Instead of mutating shared services, the library uses immutable helpers and a factory.
+Instead of mutating shared services, the library uses immutable config helpers and a factory.
 
 ### Why factories?
 
@@ -81,14 +83,22 @@ In most container-based applications, `SitemapConfig` and `FilesystemWriter` are
 
 Changing them directly during command execution would make them stateful and unsafe. Factories avoid that by creating a fresh `SitemapGenerator` with runtime-specific values.
 
-## Immutable runtime helpers
+## Immutable config helpers
 
-### `SitemapConfig::withBaseUrl()`
+### `SitemapConfig::withEntryBaseUrl()`
 
-Returns a new config instance with a different `baseUrl`, preserving the rest of the configuration.
+Returns a new config instance with a different `entryBaseUrl`, preserving the rest of the configuration.
 
 ```php
-$config = $config->withBaseUrl('https://www.example.com');
+$config = $config->withEntryBaseUrl('https://www.example.com');
+```
+
+### `SitemapConfig::withSitemapBaseUrl()`
+
+Returns a new config instance with a different `sitemapBaseUrl`, preserving the rest of the configuration.
+
+```php
+$config = $config->withSitemapBaseUrl('https://www.example.com/sitemaps');
 ```
 
 ### `FilesystemWriter::withFolder()`
@@ -105,14 +115,16 @@ Use `SitemapGeneratorFactory` to create a fresh generator for each runtime conte
 
 ```php
 $generator = $factory->create(
-    baseUrl: 'https://www.example.com',
+    entryBaseUrl: 'https://www.example.com',
+    sitemapBaseUrl: 'https://www.example.com/sitemaps',
     folder: '/var/www/project/public/sitemaps'
 );
 ```
 
 This allows you to reuse the default library services while changing:
 
-- the runtime base URL
+- the runtime entry base URL
+- the runtime sitemap base URL
 - the output directory
 
 ## Example: generate a sitemap with runtime configuration
@@ -137,7 +149,8 @@ final class BuildSitemap
         $sitemap->addEntry(new SitemapEntry('/en/contact'));
 
         $generator = $this->sitemapGeneratorFactory->create(
-            baseUrl: 'https://www.example.com',
+            entryBaseUrl: 'https://www.example.com',
+            sitemapBaseUrl: 'https://www.example.com/sitemaps',
             folder: __DIR__ . '/public/sitemaps'
         );
 
@@ -145,6 +158,34 @@ final class BuildSitemap
     }
 }
 ```
+
+## Example: absolute entry URLs with separate sitemap file base URL
+
+This is the recommended setup when your application already knows the canonical entry URLs and stores sitemap files under a public `/sitemaps` path.
+
+```php
+<?php declare(strict_types=1);
+
+use DalPraS\Sitemap\Service\SitemapGeneratorFactory;
+use DalPraS\Sitemap\Sitemap;
+use DalPraS\Sitemap\SitemapEntry;
+
+$generator = $factory->create(
+    entryBaseUrl: 'https://www.example.com',
+    sitemapBaseUrl: 'https://www.example.com/sitemaps',
+    folder: __DIR__ . '/public/sitemaps',
+);
+
+$sitemap = new Sitemap('catalog');
+$sitemap->addEntry(new SitemapEntry('https://www.example.com/en/products/example'));
+
+$generator->generate($sitemap);
+```
+
+In this setup:
+
+- sitemap entries keep their canonical absolute URLs
+- sitemap index files are linked under `https://www.example.com/sitemaps`
 
 ## Example: generate multiple sitemap sets in one command
 
@@ -170,12 +211,13 @@ final class BuildAllSitemaps
             'site-b' => 'https://www.site-b.example',
         ];
 
-        foreach ($sites as $key => $baseUrl) {
+        foreach ($sites as $key => $siteBaseUrl) {
             $sitemap = new Sitemap('catalog-' . $key);
             $sitemap->addEntry(new SitemapEntry('/en/products/example'));
 
             $generator = $this->sitemapGeneratorFactory->create(
-                baseUrl: $baseUrl,
+                entryBaseUrl: $siteBaseUrl,
+                sitemapBaseUrl: rtrim($siteBaseUrl, '/') . '/sitemaps',
                 folder: __DIR__ . '/public/sitemaps/' . $key
             );
 
@@ -192,41 +234,49 @@ This keeps services immutable while allowing each sitemap run to target a differ
 ### `SitemapGeneratorFactory::create()`
 
 ```php
-public function create(?string $baseUrl = null, ?string $folder = null): SitemapGenerator
+public function create(
+    ?string $entryBaseUrl = null,
+    ?string $sitemapBaseUrl = null,
+    ?string $folder = null,
+): SitemapGenerator
 ```
 
 Parameters:
 
-- `baseUrl`: optional runtime override for `SitemapConfig::baseUrl`
+- `entryBaseUrl`: runtime override for `SitemapConfig::entryBaseUrl`
+- `sitemapBaseUrl`: runtime override for `SitemapConfig::sitemapBaseUrl`
 - `folder`: optional runtime override for `FilesystemWriter`
 
-## Symfony service registration example
+## Recommended usage
 
-```yaml
-services:
-  DalPraS\Sitemap\Service\SitemapGeneratorFactory:
-    arguments:
-      $config: '@DalPraS\Sitemap\Config\SitemapConfig'
-      $validator: '@DalPraS\Sitemap\Support\SitemapValidator'
-      $splitter: '@DalPraS\Sitemap\Support\SitemapSplitter'
-      $sitemapRenderer: '@DalPraS\Sitemap\Renderer\XmlSitemapRenderer'
-      $indexRenderer: '@DalPraS\Sitemap\Renderer\XmlSitemapIndexRenderer'
-      $writer: '@DalPraS\Sitemap\Contract\OutputWriterInterface'
+Use the explicit API:
+
+```php
+$generator = $factory->create(
+    entryBaseUrl: 'https://www.example.com',
+    sitemapBaseUrl: 'https://www.example.com/sitemaps',
+    folder: '/var/www/project/public/sitemaps',
+);
+```
+
+Use `baseUrl` only for backward compatibility when both bases are intentionally the same:
+
+```php
+$generator = $factory->create(
+    baseUrl: 'https://www.example.com',
+    folder: '/var/www/project/public/sitemaps',
+);
 ```
 
 ## Notes
 
-### Base URL behavior
+### URL resolution behavior
 
-The factory allows you to override `baseUrl` at runtime by creating a new `SitemapConfig` instance.
+- `entryBaseUrl` is used to resolve non-absolute sitemap entry URLs, image URLs, and alternate links
+- `sitemapBaseUrl` is used to resolve sitemap file URLs inside sitemap indexes
+- if `allowAbsoluteUrls` is enabled, already absolute URLs are left unchanged
 
-```php
-$generator = $factory->create(baseUrl: 'https://www.example.com');
-```
-
-Whether this changes the final XML depends on which components use `SitemapConfig::baseUrl`.
-
-If your application already builds fully qualified URLs before creating `SitemapEntry` objects, overriding `baseUrl` may not change the generated XML.
+This separation avoids mistakes when sitemap files are publicly served from a subpath such as `/sitemaps`.
 
 ### Output folder override
 
@@ -238,28 +288,15 @@ $generator = $factory->create(folder: '/tmp/sitemaps');
 
 If another writer implementation is used, runtime folder override may not be available.
 
-## Recommended usage
-
-Use the factory whenever:
-
-- you generate sitemaps for multiple domains in one process
-- you need different output folders per run
-- you want to keep services immutable and container-safe
-
-Avoid mutating shared config or writer services during command execution.
-
 ## What changed
 
 ### Added
 
-- `SitemapConfig::withBaseUrl()` for immutable runtime base URL overrides
-- `FilesystemWriter::withFolder()` for immutable runtime folder overrides
-- `SitemapGeneratorFactory` for creating generators with per-run configuration
+- `SitemapConfig::withEntryBaseUrl()` for immutable runtime entry base URL overrides
+- `SitemapConfig::withSitemapBaseUrl()` for immutable runtime sitemap base URL overrides
+- separate runtime URL resolvers for sitemap entries and sitemap index files
+- explicit `entryBaseUrl` and `sitemapBaseUrl` support in runtime factories
 
-### Typical use case
+### Deprecated
 
-These additions make it easier to generate sitemaps for multiple domains, tenants, storefronts, or environments within the same command without mutating shared services.
-
-## License
-
-MIT
+- factory-level `baseUrl` as the primary public API; keep using it only as a legacy shorthand when both bases are the same

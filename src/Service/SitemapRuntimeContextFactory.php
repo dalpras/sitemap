@@ -21,22 +21,31 @@ final class SitemapRuntimeContextFactory
         private readonly ?FilesystemWriterFactory $filesystemWriterFactory = null,
     ) {}
 
-    public function create(?string $baseUrl = null, ?string $folder = null): SitemapRuntimeContext
-    {
-        $config = $baseUrl !== null
-            ? $this->config->withBaseUrl($baseUrl)
-            : $this->config;
+    public function create(
+        ?string $entryBaseUrl = null,
+        ?string $sitemapBaseUrl = null,
+        ?string $folder = null,
+    ): SitemapRuntimeContext {
+        $config = $this->resolveConfig($entryBaseUrl, $sitemapBaseUrl);
 
-        $urlResolver = new BaseUrlResolver($config);
+        $entryUrlResolver = new BaseUrlResolver(
+            baseUrl: $config->entryBaseUrl,
+            allowAbsoluteUrls: $config->allowAbsoluteUrls,
+        );
+
+        $sitemapUrlResolver = new BaseUrlResolver(
+            baseUrl: $config->sitemapBaseUrl,
+            allowAbsoluteUrls: $config->allowAbsoluteUrls,
+        );
 
         $sitemapRenderer = new XmlSitemapRenderer(
             config: $config,
-            urlResolver: $urlResolver,
+            urlResolver: $entryUrlResolver,
         );
 
         $indexRenderer = new XmlSitemapIndexRenderer(
             config: $config,
-            urlResolver: $urlResolver,
+            urlResolver: $sitemapUrlResolver,
         );
 
         $splitter = new SitemapSplitter($config);
@@ -58,6 +67,27 @@ final class SitemapRuntimeContextFactory
             indexRenderer: $indexRenderer,
             writer: $writer,
         );
+    }
+
+    private function resolveConfig(
+        ?string $entryBaseUrl,
+        ?string $sitemapBaseUrl,
+    ): SitemapConfig {
+        if ($entryBaseUrl === null || $sitemapBaseUrl === null) {
+            throw new LogicException('Both entryBaseUrl and sitemapBaseUrl must be configured.');
+        }
+
+        $config = $this->config;
+
+        if (rtrim($entryBaseUrl, '/') !== $config->entryBaseUrl) {
+            $config = $config->withEntryBaseUrl($entryBaseUrl);
+        }
+
+        if (rtrim($sitemapBaseUrl, '/') !== $config->sitemapBaseUrl) {
+            $config = $config->withSitemapBaseUrl($sitemapBaseUrl);
+        }
+
+        return $config;
     }
 
     private function resolveWriter(?string $folder): OutputWriterInterface
